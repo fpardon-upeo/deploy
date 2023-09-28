@@ -10,60 +10,28 @@ on:
             
 
 # Jobs to be executed
+# Jobs to be executed
 jobs:
-    deploy-branch-to-int-and-staging-orgs:
+    build-deploy:
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'dependabot[bot]' }}
         steps:
-            # Install Salesforce CLI
-            - name: 'Install Salesforce CLI'
-              run: |
-                  wget https://developer.salesforce.com/media/salesforce-cli/sfdx/channels/stable/sfdx-linux-x64.tar.xz
-                  mkdir ~/sfdx
-                  tar xJf sfdx-linux-x64.tar.xz -C ~/sfdx --strip-components 1
-                  echo "$HOME/sfdx/bin" >> $GITHUB_PATH
-                  ~/sfdx/bin/sfdx version
 
-            # install SFDX-Git-Delta plugin - https://github.com/scolladon/sfdx-git-delta
-            - name: 'Installing sfdx git delta'
-              run: | 
-                  echo y | sfdx plugins:install sfdx-git-delta
-                  sfdx plugins 
-
-            # Checkout the source code
+            # Checkout the code in the pull request
             - name: 'Checkout source code'
-              uses: actions/checkout@v3
+              uses: actions/checkout@v2
+
+            - name: 'Build and Deploy'
+              uses: tiagonnascimento/sfdx-orgdev-build-deploy@v2
               with:
-                fetch-depth: 0
-
-            # Store secret for both otgs
-            - name: 'Populate auth file with SFDX_URL secret of the integration and staging orgs'
-              shell: bash
-              run: |
-                  echo ${{ secrets.SFDX_INTEGRATION_URL}} > ./SFDX_INTEGRATION_URL.txt
-                  echo ${{ secrets.SFDX_STAGING_URL}} > ./SFDX_STAGING_URL.txt
-
-            - name: 'Create delta packages for new, modified or deleted metadata'
-              run: | 
-                  mkdir changed-sources
-                  sfdx sgd:source:delta --to "HEAD" --from "HEAD^" --output changed-sources/ --generate-delta --source force-app/
-
-            # Authenticate to org
-            - name: 'Authenticate to Integration Org'
-              run: sfdx auth:sfdxurl:store -f ./SFDX_INTEGRATION_URL.txt -s -a integration
-
-            - name: 'Deploy the entire branch to Integration org'
-              run: sfdx force:source:deploy -p force-app --testlevel RunLocalTests --json
-
-            - name: 'Deploy destructive changes (if any) to Integration org'
-              run: sfdx force:mdapi:deploy -d "changed-sources/destructiveChanges" --checkonly --ignorewarnings 
-
-            # Authenticate to org
-            - name: 'Authenticate to Staging Org to Staging org'
-              run: sfdx auth:sfdxurl:store -f ./SFDX_STAGING_URL.txt -s -a staging
-
-            - name: 'Deploy the entire branch'
-              run: sfdx force:source:deploy -p force-app --testlevel RunLocalTests --json
-
-            - name: 'Deploy destructive changes (if any) to Staging org'
-              run: sfdx force:mdapi:deploy -d "changed-sources/destructiveChanges" --checkonly --ignorewarnings
+                type: 'sandbox'
+                certificate_path: devops/server.key.enc
+                decryption_key: ${{ secrets.DECRYPTION_KEY_NON_PRODUCTIVE }}
+                decryption_iv: ${{ secrets.DECRYPTION_IV_NON_PRODUCTIVE }}
+                client_id: ${{ secrets.CONSUMER_KEY_TI01 }}
+                username: ${{ secrets.USERNAME_TI01 }}
+                checkonly: false
+                deploy_wait_time: '10'
+                manifest_path: manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
+                destructive_path: destructive
+                data_factory: scripts/apex/CreateBaseData.apex
+                default_source_path: force-app/main/default
